@@ -1,0 +1,394 @@
+# Translated to Ruby from datamatrix-svg
+# https://github.com/datalog/datamatrix-svg
+
+module Dmtx
+  class DataMatrix
+    attr_reader :m
+  
+    C40 = [230,
+           31, 0, 0,
+           32, 9, 29,
+           47, 1, 33,
+           57, 9, 44,
+           64, 1, 43,
+           90, 9, 51,
+           95, 1, 69,
+           127, 2, 96,
+           255, 1,  0]
+  
+    TEXT = [239,
+            31, 0,  0,
+            32, 9, 29,
+            47, 1, 33,
+            57, 9, 44,
+            64, 1, 43,
+            90, 2, 64,
+            95, 1, 69,
+            122, 9, 83,
+            127, 2, 96,
+            255, 1,  0]
+  
+    X12 = [238,
+           12, 8,  0,
+           13, 9, 13,
+           31, 8,  0,
+           32, 9, 29,
+           41, 8,  0,
+           42, 9, 41,
+           47, 8,  0,
+           57, 9, 44,
+           64, 8,  0,
+           90, 9, 51,
+           255, 8,  0]
+  
+    def initialize(msg, dim: 256, pad: 2, rect: false)
+      @msg = msg
+      @dim = dim
+      @pad = pad || 2 # raise if <...
+      @m = []
+      @xx = 0
+      @yy = 0
+      encode_msg(msg, rect)
+    end
+  
+    def to_s
+      s = ''
+      sx = @xx + @pad * 2
+      sy = @yy + @pad * 2
+      y = 0
+      while y <= @yy
+        x = 0
+        while x <= @xx
+          if bit?(x, y)
+            s << '██'
+          else
+            s << '  '
+          end
+          x += 1
+        end
+        y += 1
+        s << "\n"
+      end
+      s
+    end
+  
+    def bit!(x, y)
+      @m[y] ||= []
+      @m[y][x] = 1
+    end
+  
+    def bit?(x, y)
+      @m[y] && @m[y][x]
+    end
+  
+    def to_ascii(t)
+      bytes, result = t.bytes, []
+      while c = bytes.shift
+        if !bytes.empty? && c > 47 && c < 58 && bytes.first > 47 && bytes.first < 58
+          result << (c - 48) * 10 + bytes.shift + 82
+        elsif c > 127
+          result << 235
+          result << ((c - 127) & 255)
+        else
+          result << c + 1
+        end
+      end
+      result
+    end
+  
+    def to_base(t)
+      bytes, result = t.bytes, [231]
+      result << (37 + (bytes.size / 250) & 255) if bytes.size > 250
+      result << (bytes.size % 250 + 149 * (result.size + 1) % 255 + 1 & 255)
+      bytes.each { |c| result << (c + 149 * (result.size + 1) % 255 + 1 & 255) }
+      result
+    end
+  
+    def to_edifact(t)
+      bytes = t.bytes
+      return [] if bytes.any? { |c| c < 32 || c > 94 }
+      l = (bytes.size + 1) & -4
+      cw = 0
+      result = l > 0 ? [240] : []
+      (0..(l - 1)).each do |i|
+        ch = i < l - 1 ? bytes[i] : 31
+        cw = cw * 64 + (ch & 63)
+        if i & 3 == 3
+          result << (cw >> 16)
+          result << (cw >> 8 & 255)
+          result << (cw & 255)
+          cw = 0
+        end
+      end
+      return result if l > bytes.size
+      result.concat to_ascii(bytes[(l == 0 ? 0 : l - 1)..-1].to_a.pack('C*'))
+    end
+  
+    def to_text(t, s)
+      cc = cw = 0
+      bytes, result = t.bytes, [s[0]]
+      l = bytes.size
+      push = lambda do |v|
+        cw = 40 * cw + v
+        cc += 1
+        if cc == 3
+          result << ((cw += 1) >> 8)
+          result << (cw & 255)
+          cc = cw = 0
+        end
+      end
+      i = 0
+      while i < l
+        break if 0 == cc && i == l - 1
+        ch = bytes[i]
+        if ch > 127 && 238 != result[0]
+          push.(1)
+          push.(30)
+          ch -= 128
+        end
+        j = 1
+        j += 3 while ch > s[j]
+        x = s[j + 1]
+        return [] if 8 == x || (9 == x && 0 == cc && i == l - 1)
+        break if x < 5 && cc == 2 && i == l - 1
+        push.(x) if x < 5
+        push.(ch - s[j + 2])
+        i += 1
+      end
+      push.(0) if 2 == cc && 238 != result[0]
+      result << 254
+      result.concat to_ascii(bytes[(i - cc)..-1].to_a.pack('C*')) if cc > 0 || i < l
+      result
+    end
+  
+    def encodings(text)
+      { ascii: to_ascii(text),
+        c40: to_text(text, C40),
+        txt: to_text(text, TEXT),
+        x12: to_text(text, X12),
+        edifact: to_edifact(text),
+        base: to_base(text) }
+    end
+    
+    def encode_msg(text, rct)
+      enc = encodings(text).values.reject(&:empty?).min_by(&:size)
+      el = enc.size
+      nc = nr = 1
+      j = -1
+      b = 1
+      rs = []
+      rc = []
+      lg = []
+      ex = []
+      if rct && el < 50
+        k = [16,  7, 28, 11, 24, 14, 32, 18, 32, 24, 44, 28]
+        begin
+          w = k[j += 1]
+          h = 6 + (j & 12)
+          l = w * h / 8
+        end while l - k[j += 1] < el
+        nc = 2 if w > 25
+      else
+        w = h = 6
+        i = 2
+        k = [5, 7, 10, 12, 14, 18, 20, 24, 28, 36, 42, 48, 56, 68, 84, 112, 144, 192, 224, 272, 336, 408, 496, 620]
+        begin
+          j += 1
+          return [0, 0] if j == k.size
+          i = 4 + i & 12 if w > 11 * i
+          w = h += i
+          l = (w * h) >> 3
+        end while l - k[j] < el
+        nr = nc = 2 * (w / 54) + 2 if w > 27
+        b = 2 * (l >> 9) + 2 if l > 255
+      end
+      s = k[j]
+      fw = w / nc
+      fh = h / nr
+      # first padding
+      if el < l - s
+        enc[el] = 129
+        el += 1
+      end
+      # more padding
+      while el < l - s
+        enc[el] = (((149 * (el += 1)) % 253) + 130) % 254 # WTF
+      end
+      s /= b
+      # log / exp table of Galois field
+      i, j = 0, 1
+      while i < 255
+        ex[i] = j
+        lg[j] = i
+        j += j
+        j ^= 301 if j > 255
+        i += 1
+      end
+      # RS generator polynomial
+      rs[s], i = 0, 1
+      while i <= s
+        j = s - i
+        rs[j] = 1
+        while j < s
+          rs[j] = rs[j + 1] ^ ex[(lg[rs[j]] + i) % 255]
+          j += 1
+        end
+        i += 1
+      end
+      # RS correction data for each block
+      c = 0
+      while c < b
+        i = 0
+        while i <= s
+          rc[i] = 0
+          i += 1
+        end
+        i = c
+        while i < el
+          j = 0
+          x = rc[0] ^ enc[i]
+          while j < s
+            rc[j] = rc[j + 1] ^ (x.nonzero? ? ex[(lg[rs[j]] + lg[x]) % 255] : 0)
+            j += 1
+          end
+          i += b
+        end
+        # interleaved correction data
+        i = 0
+        while i < s
+          enc[el + c + i * b] = rc[i]
+          i += 1
+        end
+        c += 1
+      end
+      # layout perimeter finder pattern
+      # horizontal
+      i = 0
+      while i < h + 2 * nr
+        j = 0
+        while j < w + 2 * nc
+          bit!(j, i + fh + 1)
+          bit!(j, i) if j & 1 == 0
+          j += 1
+        end
+        i += fh + 2
+      end
+      # vertical
+      i = 0
+      while i < w + 2 * nc
+        j = 0
+        while j < h
+          bit!(i, j + (j / fh) * 2 + 1)
+          bit!(i + fw + 1, j + (j / fh) * 2) if j & 1 == 1
+          j += 1
+        end
+        i += fw + 2
+      end
+      s, c, r = 2, 0, 4
+      b =  [0, 0, -1, 0, -2, 0, 0, -1, -1, -1, -2, -1, -1, -2, -2, -2]
+      # diagonal steps
+      i = 0
+      while i < l
+        if r == h - 3 && c == -1
+          # corner A layout
+          k = [w, 6 - h,
+               w, 5 - h,
+               w, 4 - h,
+               w, 3 - h,
+               w - 1, 3 - h,
+               3,     2,
+               2,     2,
+               1,     2]
+        elsif r == h + 1 && c == 1 && w & 7 == 0 && h & 7 == 6
+          # corner D layout
+          k = [w - 2,     -h,
+               w - 3,     -h,
+               w - 4,     -h,
+               w - 2, -1 - h,
+               w - 3, -1 - h,
+               w - 4, -1 - h,
+               w - 2, -2,
+               -1,    -2]
+        else
+          if r == 0 && c == w - 2 && (w & 3).nonzero?
+            # corner B: omit upper left
+            r -= s
+            c += s
+            next
+          end
+          if r < 0 || c >= w || r >= h || c < 0
+            # outside
+            s = -s
+            r += 2 + s / 2
+            c += 2 - s / 2
+            while r < 0 || c >= w || r >= h || c < 0
+              r -= s
+              c += s
+            end
+          end
+          if r == h - 2 && c == 0 && (w & 3).nonzero?
+            # corner B layout
+            k = [w - 1, 3 - h,
+                 w - 1, 2 - h,
+                 w - 2, 2 - h,
+                 w - 3, 2 - h,
+                 w - 4, 2 - h,
+                 0,     1,
+                 0,     0,
+                 0,    -1]
+          elsif r == h - 2 && c == 0 && w & 7 == 4
+            # corner C layout
+            k = [w - 1, 5 - h,
+                 w - 1, 4 - h,
+                 w - 1, 3 - h,
+                 w - 1, 2 - h,
+                 w - 2, 2 - h,
+                 0,     1,
+                 0,     0,
+                 0,    -1]
+          elsif r == 1 && c == w - 1 && w & 7 == 0 && h & 7 == 6
+            # omit corner D
+            r -= s
+            c += s
+            next
+          else
+            # nominal L-shape layout
+            k = b
+          end
+        end
+        # layout each bit
+        el = enc[i]
+        i += 1
+        j = 0
+        while el > 0
+          if (el & 1).nonzero?
+            x = c + k[j]
+            y = r + k[j + 1]
+            # wrap around
+            if x < 0
+              x += w
+              y += 4 - ((w + 4) & 7)
+            end
+            if y < 0
+              y += h
+              x += 4 - ((h + 4) & 7)
+            end
+            # region gap
+            bit!(x + 2 * (x / fw) + 1, y + 2 * (y / fh) + 1)
+          end
+          j += 2
+          el >>= 1
+        end
+        r -= s
+        c += s
+      end
+      # unfilled corner
+      i = w
+      while (i & 3).nonzero?
+        bit!(i, i)
+        i -= 1
+      end
+      @xx = w + 2 * nc
+      @yy = h + 2 * nr
+    end
+  end
