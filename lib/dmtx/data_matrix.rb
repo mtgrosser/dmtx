@@ -1,9 +1,12 @@
 # Translated to Ruby from datamatrix-svg
 # https://github.com/datalog/datamatrix-svg
 
+require 'builder'
+require 'chunky_png'
+
 module Dmtx
   class DataMatrix
-    attr_reader :m
+    attr_reader :width, :height
   
     C40 = [230,
            31, 0, 0,
@@ -41,37 +44,78 @@ module Dmtx
            90, 9, 51,
            255, 8,  0]
   
-    def initialize(msg, dim: 256, pad: 2, rect: false)
-      @msg = msg
-      @dim = dim
-      @pad = pad || 2 # raise if <...
+    def initialize(msg, rect: false)
       @m = []
-      @xx = 0
-      @yy = 0
-      encode_msg(msg, rect)
+      @width = 0
+      @height = 0
+      encode(msg, rect)
     end
-  
-    def to_s
-      s = ''
-      sx = @xx + @pad * 2
-      sy = @yy + @pad * 2
-      y = 0
-      while y <= @yy
-        x = 0
-        while x <= @xx
-          if bit?(x, y)
-            s << '██'
-          else
-            s << '  '
-          end
-          x += 1
-        end
-        y += 1
-        s << "\n"
+    
+    def inspect
+      "#<#{self.class.name}:0x#{object_id.to_s(16)} #{width}x#{height}>"
+    end
+    
+    def to_i
+      (0..(height - 1)).inject(0) { |i, y| (0..(width - 1)).inject(i) { |j, x| (j << 1) | (bit?(x,y) ? 1 : 0) } }
+    end
+    
+    def to_s(pad: 2)
+      (0..(height - 1)).inject('') do |s, y|
+        (0..(width - 1)).inject(s) { |t, x| t << (bit?(x,y) ? '██' : '  ') } << "\n"
       end
-      s
     end
-  
+    
+    def to_svg(dim: 256, pad: 2, bgcolor: nil, color: '#000')
+      raise ArgumentError, 'illegal dimension' unless dim > 0
+      raise ArgumentError, 'illegal padding' unless pad >= 0
+      color ||= '#000'
+      path = ''
+      sx = width + pad * 2
+      sy = height + pad * 2
+      mx = [1, 0, 0, 1, pad, pad]
+      y = height
+      while y > 0
+        y -= 1
+        d = 0
+        x = width
+        while x > 0
+          x -= 1
+          path << "M#{x},#{y}h1v1h-1v-1z" if bit?(x,y)
+        end
+      end
+      builder = Builder::XmlMarkup.new
+      builder.tag! 'svg', xmlns: 'http://www.w3.org/2000/svg',
+        viewBox: [0, 0, sx, sy].join(' '),
+        width: dim * sx / sy,
+        height: dim,
+        fill: color,
+        'shape-rendering' => 'crispEdges',
+        version: '1.1' do |svg|
+        svg.path fill: bgcolor, d: "M0,0v#{sy}h#{sx}V0H0Z" if bgcolor
+        svg.path transform: "matrix(#{mx.map(&:to_s).join(',')})", d: path
+      end
+      builder.target!
+    end
+    
+    def to_png(mod: 8, pad: 2, bgcolor: nil, color: '#000')
+      raise ArgumentError, 'module size too small' unless mod > 0
+      raise ArgumentError, 'padding too small' unless pad >= 0
+      color = color ? ChunkyPNG::Color(color) : ChunkyPNG::Color('black')
+      bgcolor = bgcolor ? ChunkyPNG::Color(bgcolor) : ChunkyPNG::Color::TRANSPARENT
+      width_px = mod * (width + pad * 2)
+      height_px = mod * (height + pad * 2)
+      png = ChunkyPNG::Image.new(width_px, height_px, ChunkyPNG::Color::TRANSPARENT)
+      sx = sy = mod * pad
+      (0..(height - 1)).each do |y|
+        (0..(width - 1)).each do |x|
+          png.rect(sx + x * mod, sy + y * mod, sx + (x + 1) * mod, sy + (y + 1) * mod, color, color) if bit?(x,y)
+        end
+      end
+      png
+    end
+    
+    private
+    
     def bit!(x, y)
       @m[y] ||= []
       @m[y][x] = 1
@@ -81,7 +125,7 @@ module Dmtx
       @m[y] && @m[y][x]
     end
   
-    def to_ascii(t)
+    def ascii_encode(t)
       bytes, result = t.bytes, []
       while c = bytes.shift
         if !bytes.empty? && c > 47 && c < 58 && bytes.first > 47 && bytes.first < 58
@@ -96,7 +140,7 @@ module Dmtx
       result
     end
   
-    def to_base(t)
+    def base_encode(t)
       bytes, result = t.bytes, [231]
       result << (37 + (bytes.size / 250) & 255) if bytes.size > 250
       result << (bytes.size % 250 + 149 * (result.size + 1) % 255 + 1 & 255)
@@ -104,7 +148,7 @@ module Dmtx
       result
     end
   
-    def to_edifact(t)
+    def edifact_encode(t)
       bytes = t.bytes
       return [] if bytes.any? { |c| c < 32 || c > 94 }
       l = (bytes.size + 1) & -4
@@ -121,10 +165,10 @@ module Dmtx
         end
       end
       return result if l > bytes.size
-      result.concat to_ascii(bytes[(l == 0 ? 0 : l - 1)..-1].to_a.pack('C*'))
+      result.concat ascii_encode(bytes[(l == 0 ? 0 : l - 1)..-1].to_a.pack('C*'))
     end
   
-    def to_text(t, s)
+    def text_encode(t, s)
       cc = cw = 0
       bytes, result = t.bytes, [s[0]]
       l = bytes.size
@@ -157,20 +201,20 @@ module Dmtx
       end
       push.(0) if 2 == cc && 238 != result[0]
       result << 254
-      result.concat to_ascii(bytes[(i - cc)..-1].to_a.pack('C*')) if cc > 0 || i < l
+      result.concat ascii_encode(bytes[(i - cc)..-1].to_a.pack('C*')) if cc > 0 || i < l
       result
     end
   
-    def encodings(text)
-      { ascii: to_ascii(text),
-        c40: to_text(text, C40),
-        txt: to_text(text, TEXT),
-        x12: to_text(text, X12),
-        edifact: to_edifact(text),
-        base: to_base(text) }
+    def encodings(msg)
+      { ascii: ascii_encode(msg),
+        c40: text_encode(msg, C40),
+        txt: text_encode(msg, TEXT),
+        x12: text_encode(msg, X12),
+        edifact: edifact_encode(msg),
+        base: base_encode(msg) }
     end
     
-    def encode_msg(text, rct)
+    def encode(text, rct)
       enc = encodings(text).values.reject(&:empty?).min_by(&:size)
       el = enc.size
       nc = nr = 1
@@ -388,7 +432,8 @@ module Dmtx
         bit!(i, i)
         i -= 1
       end
-      @xx = w + 2 * nc
-      @yy = h + 2 * nr
+      @width = w + 2 * nc
+      @height = h + 2 * nr
     end
   end
+end

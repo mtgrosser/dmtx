@@ -1,6 +1,7 @@
-# frozen_string_literal: true
+require 'rubygems'
+require 'bundler/setup'
+Bundler.require(:default)
 
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "dmtx"
+require 'dmtx'
 
-require "minitest/autorun"
+require 'minitest/autorun'

@@ -13,4 +13,7 @@ Gem::Specification.new do |spec|
 
   spec.files = Dir['{lib}/**/*.rb', 'LICENSE', 'README.md', 'CHANGELOG.md', 'Rakefile']
   spec.require_paths = ['lib']
+  
+  spec.add_dependency 'builder'
+  spec.add_dependency 'chunky_png'
 end
