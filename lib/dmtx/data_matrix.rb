@@ -104,7 +104,7 @@ module Dmtx
       bgcolor = bgcolor ? ChunkyPNG::Color(bgcolor) : ChunkyPNG::Color::TRANSPARENT
       width_px = mod * (width + pad * 2)
       height_px = mod * (height + pad * 2)
-      png = ChunkyPNG::Image.new(width_px, height_px, ChunkyPNG::Color::TRANSPARENT)
+      png = ChunkyPNG::Image.new(width_px, height_px, bgcolor)
       sx = sy = mod * pad
       (0..(height - 1)).each do |y|
         (0..(width - 1)).each do |x|
