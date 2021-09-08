@@ -1,3 +1,5 @@
+[![Gem Version](https://badge.fury.io/rb/dmtx.svg)](https://badge.fury.io/rb/dmtx)
+
 # dmtx
 Pure Ruby Data Matrix generator
 
