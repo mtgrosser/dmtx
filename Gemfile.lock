@@ -1,0 +1,40 @@
+PATH
+  remote: .
+  specs:
+    dmtx (0.2.0)
+      builder
+      chunky_png
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    builder (3.2.4)
+    chunky_png (1.4.0)
+    debug (1.9.1)
+      irb (~> 1.10)
+      reline (>= 0.3.8)
+    io-console (0.7.2)
+    irb (1.11.2)
+      rdoc
+      reline (>= 0.4.2)
+    minitest (5.22.2)
+    psych (5.1.2)
+      stringio
+    rake (13.1.0)
+    rdoc (6.6.2)
+      psych (>= 4.0.0)
+    reline (0.4.2)
+      io-console (~> 0.5)
+    stringio (3.1.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  debug
+  dmtx!
+  minitest (~> 5.0)
+  rake (~> 13.0)
+
+BUNDLED WITH
+   2.1.4

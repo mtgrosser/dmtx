@@ -30,5 +30,12 @@ class DmtxTest < Minitest::Test
     dmtx = Dmtx::DataMatrix.new('Chunky Bacon')
     assert dmtx.to_svg.to_s.start_with?('<svg xmlns')
   end
-  
+
+  def test_gs1_data_matrix_encodings
+    # See example 2 at https://www.gs1.org/standards/gs1-datamatrix-guideline/25#2-Encoding-data+2-3-Human-readable-interpretation-(HRI)
+    data = "#{Dmtx::DataMatrix::FNC1.chr}01095011010209171719050810ABCD1234#{Dmtx::DataMatrix::FNC1.chr}2110"
+    dmtx = Dmtx::DataMatrix.new(data, encoding: :gs1)
+    assert_equal :gs1, dmtx.encoding
+    assert_equal 232, dmtx.encoded_message.first
+  end
 end

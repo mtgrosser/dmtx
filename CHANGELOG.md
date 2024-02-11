@@ -1,3 +1,7 @@
+## [0.2.0] - 2024-02-11
+
+- Support GS1 DataMatrix
+
 ## [0.1.1] - 2021-09-02
 
 - Fix PNG bgcolor

@@ -6,7 +6,7 @@ require 'chunky_png'
 
 module Dmtx
   class DataMatrix
-    attr_reader :width, :height
+    attr_reader :width, :height, :encoded_message, :encoding
   
     C40 = [230,
            31, 0, 0,
@@ -43,16 +43,26 @@ module Dmtx
            64, 8,  0,
            90, 9, 51,
            255, 8,  0]
-  
-    def initialize(msg, rect: false)
+    
+    # See https://www.gs1.org/standards/gs1-datamatrix-guideline/25
+    FNC1 = 29
+    FNC1_CODEWORD = 232
+    
+    DEFAULT_ENCODINGS = %i[ascii c40 txt x12 edifact base gs1].freeze
+    ENCODINGS = (%i[gs1] + DEFAULT_ENCODINGS).freeze
+    
+    def initialize(msg, rect: false, encoding: nil)
       @m = []
       @width = 0
       @height = 0
-      encode(msg, rect)
+      raise ArgumentError, "illegal encoding #{encoding.inspect}" if encoding && !ENCODINGS.include?(encoding)
+      @encoding, @encoded_message = encode_message(msg, encoding)
+      raise EncodingError, "illegal payload" unless @encoded_message
+      encode(@encoded_message, rect)
     end
     
     def inspect
-      "#<#{self.class.name}:0x#{object_id.to_s(16)} #{width}x#{height}>"
+      "#<#{self.class.name}:0x#{object_id.to_s(16)} #{width}x#{height}@#{encoding}>"
     end
     
     def to_i
@@ -76,7 +86,6 @@ module Dmtx
       y = height
       while y > 0
         y -= 1
-        d = 0
         x = width
         while x > 0
           x -= 1
@@ -133,6 +142,23 @@ module Dmtx
         elsif c > 127
           result << 235
           result << ((c - 127) & 255)
+        else
+          result << c + 1
+        end
+      end
+      result
+    end
+
+    def gs1_encode(t)
+      bytes, result = t.bytes, []
+      while c = bytes.shift
+        if !bytes.empty? && c > 47 && c < 58 && bytes.first > 47 && bytes.first < 58
+          result << (c - 48) * 10 + bytes.shift + 82
+        elsif c > 127
+          result << 235
+          result << ((c - 127) & 255)
+        elsif c == FNC1
+          result << FNC1_CODEWORD
         else
           result << c + 1
         end
@@ -204,18 +230,27 @@ module Dmtx
       result.concat ascii_encode(bytes[(i - cc)..-1].to_a.pack('C*')) if cc > 0 || i < l
       result
     end
-  
-    def encodings(msg)
-      { ascii: ascii_encode(msg),
-        c40: text_encode(msg, C40),
-        txt: text_encode(msg, TEXT),
-        x12: text_encode(msg, X12),
-        edifact: edifact_encode(msg),
-        base: base_encode(msg) }
+    
+    def c40_encode(t)
+      text_encode(t, C40)
     end
     
-    def encode(text, rct)
-      enc = encodings(text).values.reject(&:empty?).min_by(&:size)
+    def txt_encode(t)
+      text_encode(t, TEXT)
+    end
+    
+    def x12_encode(t)
+      text_encode(t, X12)
+    end
+    
+    def encode_message(msg, encoding)
+      (encoding ? [encoding] : DEFAULT_ENCODINGS)
+        .map { |name| [name, send("#{name}_encode", msg)] }
+        .reject { |_, encoded| encoded.empty? }
+        .min_by { |_, encoded| encoded.size }
+    end
+    
+    def encode(enc, rct)
       el = enc.size
       nc = nr = 1
       j = -1
