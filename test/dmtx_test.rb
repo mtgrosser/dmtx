@@ -33,9 +33,9 @@ class DmtxTest < Minitest::Test
 
   def test_gs1_data_matrix_encodings
     # See example 2 at https://www.gs1.org/standards/gs1-datamatrix-guideline/25#2-Encoding-data+2-3-Human-readable-interpretation-(HRI)
-    data = "#{Dmtx::GS1DataMatrix::FNC1}01095011010209171719050810ABCD1234#{Dmtx::GS1DataMatrix::FNC1}2110"
-    encodings = Dmtx::GS1DataMatrix.new(data).encodings(data)
-    assert_equal %i[asci], encodings.keys
-    assert_equal 232, encodings[:asci].first
+    data = "#{Dmtx::DataMatrix::FNC1.chr}01095011010209171719050810ABCD1234#{Dmtx::DataMatrix::FNC1.chr}2110"
+    dmtx = Dmtx::DataMatrix.new(data, encoding: :gs1)
+    assert_equal :gs1, dmtx.encoding
+    assert_equal 232, dmtx.encoded_message.first
   end
 end
