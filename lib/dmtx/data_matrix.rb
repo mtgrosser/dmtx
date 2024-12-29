@@ -50,11 +50,22 @@ module Dmtx
     
     DEFAULT_ENCODINGS = %i[ascii c40 txt x12 edifact base gs1].freeze
     ENCODINGS = (%i[gs1] + DEFAULT_ENCODINGS).freeze
-    
-    def initialize(msg, rect: false, encoding: nil)
+
+    VALID_SYMBOL_SIZES = [
+      # Square symbols
+      [10, 10], [12, 12], [14, 14], [16, 16], [18, 18], [20, 20], [22, 22],
+      [24, 24], [26, 26], [32, 32], [36, 36], [40, 40], [44, 44], [48, 48],
+      [52, 52], [64, 64], [72, 72], [80, 80], [88, 88], [96, 96], [104, 104],
+      [120, 120], [132, 132], [144, 144],
+      # Rectangular symbols
+      [8, 18], [8, 32], [12, 26], [12, 36], [16, 36], [16, 48]
+    ].freeze
+
+    def initialize(msg, rect: false, encoding: nil, width: nil, height: nil)
       @m = []
-      @width = 0
-      @height = 0
+      @width = width || 0
+      @height = height || 0
+      validate_symbol_size(@width, @height)
       raise ArgumentError, "illegal encoding #{encoding.inspect}" if encoding && !ENCODINGS.include?(encoding)
       @encoding, @encoded_message = encode_message(msg, encoding)
       raise EncodingError, "illegal payload" unless @encoded_message
@@ -124,6 +135,14 @@ module Dmtx
     end
     
     private
+
+    def validate_symbol_size(width, height)
+      return if width.nil? || height.nil? || (width == 0 && height == 0)
+
+      unless VALID_SYMBOL_SIZES.include?([width, height])
+        raise ArgumentError, "Invalid DataMatrix symbol size: #{width}x#{height}. Valid sizes: #{VALID_SYMBOL_SIZES.map { |w, h| "#{w}x#{h}" }.join(', ')}"
+      end
+    end
     
     def bit!(x, y)
       @m[y] ||= []
@@ -252,47 +271,60 @@ module Dmtx
     
     def encode(enc, rct)
       el = enc.size
-      nc = nr = 1
-      j = -1
-      b = 1
+
       rs = []
       rc = []
       lg = []
       ex = []
-      if rct && el < 50
-        k = [16,  7, 28, 11, 24, 14, 32, 18, 32, 24, 44, 28]
-        begin
-          w = k[j += 1]
-          h = 6 + (j & 12)
-          l = w * h / 8
-        end while l - k[j += 1] < el
-        nc = 2 if w > 25
-      else
-        w = h = 6
-        i = 2
-        k = [5, 7, 10, 12, 14, 18, 20, 24, 28, 36, 42, 48, 56, 68, 84, 112, 144, 192, 224, 272, 336, 408, 496, 620]
-        begin
-          j += 1
-          return [0, 0] if j == k.size
-          i = 4 + i & 12 if w > 11 * i
-          w = h += i
-          l = (w * h) >> 3
-        end while l - k[j] < el
+      nc = nr = 1
+      w = h = l = s = fw = fh = nil
+      b = 1
+      if @width > 0 && @height > 0
+        if el > (@width * @height) / 8 
+          raise ArgumentError, "Data exceeds capacity for the requested symbol size #{@width}x#{@height}"
+        end
+        w, h = @width, @height
         nr = nc = 2 * (w / 54) + 2 if w > 27
-        b = 2 * (l >> 9) + 2 if l > 255
+        b = 2 * ((w * h) >> 9) + 2 if (w * h) > 255
+        l = (w * h) >> 3
+        s = l / b
+        fw = w / nc
+        fh = h / nr
+      else
+        j = -1
+        if rct && el < 50
+          k = [16, 7, 28, 11, 24, 14, 32, 18, 32, 24, 44, 28]
+          begin
+            w = k[j += 1]
+            h = 6 + (j & 12)
+            l = w * h / 8
+          end while l - k[j += 1] < el
+          nc = 2 if w > 25
+        else
+          w = h = 6
+          i = 2
+          k = [5, 7, 10, 12, 14, 18, 20, 24, 28, 36, 42, 48, 56, 68, 84, 112, 144, 192, 224, 272, 336, 408, 496, 620]
+          begin
+            j += 1
+            return [0, 0] if j == k.size
+            i = 4 + i & 12 if w > 11 * i
+            w = h += i
+            l = (w * h) >> 3
+          end while l - k[j] < el
+          nr = nc = 2 * (w / 54) + 2 if w > 27
+          b = 2 * (l >> 9) + 2 if l > 255
+        end
+        s = k[j]
+        fw = w / nc
+        fh = h / nr
       end
-      s = k[j]
-      fw = w / nc
-      fh = h / nr
-      # first padding
-      if el < l - s
-        enc[el] = 129
-        el += 1
+
+      # Pad the encoded data to the required size
+      # No more WTF
+      while enc.size < l
+        enc << (((149 * (enc.size + 1)) % 253) + 130) % 254
       end
-      # more padding
-      while el < l - s
-        enc[el] = (((149 * (el += 1)) % 253) + 130) % 254 # WTF
-      end
+
       s /= b
       # log / exp table of Galois field
       i, j = 0, 1
