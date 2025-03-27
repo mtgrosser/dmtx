@@ -35,6 +35,3 @@ DEPENDENCIES
   dmtx!
   minitest (~> 5.0)
   rake (~> 13.0)
-
-BUNDLED WITH
-   2.1.4
