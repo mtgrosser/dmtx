@@ -7,7 +7,7 @@ require 'chunky_png'
 module Dmtx
   class DataMatrix
     attr_reader :width, :height, :encoded_message, :encoding
-  
+
     C40 = [230,
            31, 0, 0,
            32, 9, 29,
@@ -18,7 +18,7 @@ module Dmtx
            95, 1, 69,
            127, 2, 96,
            255, 1,  0]
-  
+
     TEXT = [239,
             31, 0,  0,
             32, 9, 29,
@@ -30,7 +30,7 @@ module Dmtx
             122, 9, 83,
             127, 2, 96,
             255, 1,  0]
-  
+
     X12 = [238,
            12, 8,  0,
            13, 9, 13,
@@ -43,38 +43,38 @@ module Dmtx
            64, 8,  0,
            90, 9, 51,
            255, 8,  0]
-    
+
     # See https://www.gs1.org/standards/gs1-datamatrix-guideline/25
     FNC1 = 29
     FNC1_CODEWORD = 232
-    
+
     DEFAULT_ENCODINGS = %i[ascii c40 txt x12 edifact base gs1].freeze
     ENCODINGS = (%i[gs1] + DEFAULT_ENCODINGS).freeze
-    
-    def initialize(msg, rect: false, encoding: nil)
+
+    def initialize(msg, rect: false, encoding: nil, data_size_override: nil)
       @m = []
       @width = 0
       @height = 0
       raise ArgumentError, "illegal encoding #{encoding.inspect}" if encoding && !ENCODINGS.include?(encoding)
       @encoding, @encoded_message = encode_message(msg, encoding)
       raise EncodingError, "illegal payload" unless @encoded_message
-      encode(@encoded_message, rect)
+      encode(@encoded_message, rect, data_size_override)
     end
-    
+
     def inspect
       "#<#{self.class.name}:0x#{object_id.to_s(16)} #{width}x#{height}@#{encoding}>"
     end
-    
+
     def to_i
       (0..(height - 1)).inject(0) { |i, y| (0..(width - 1)).inject(i) { |j, x| (j << 1) | (bit?(x,y) ? 1 : 0) } }
     end
-    
+
     def to_s(pad: 2)
       (0..(height - 1)).inject('') do |s, y|
         (0..(width - 1)).inject(s) { |t, x| t << (bit?(x,y) ? '██' : '  ') } << "\n"
       end
     end
-    
+
     def to_svg(dim: 256, pad: 2, bgcolor: nil, color: '#000')
       raise ArgumentError, 'illegal dimension' unless dim > 0
       raise ArgumentError, 'illegal padding' unless pad >= 0
@@ -105,7 +105,7 @@ module Dmtx
       end
       builder.target!
     end
-    
+
     def to_png(mod: 8, pad: 2, bgcolor: nil, color: '#000')
       raise ArgumentError, 'module size too small' unless mod > 0
       raise ArgumentError, 'padding too small' unless pad >= 0
@@ -122,18 +122,18 @@ module Dmtx
       end
       png
     end
-    
+
     private
-    
+
     def bit!(x, y)
       @m[y] ||= []
       @m[y][x] = 1
     end
-  
+
     def bit?(x, y)
       @m[y] && @m[y][x]
     end
-  
+
     def ascii_encode(t)
       bytes, result = t.bytes, []
       while c = bytes.shift
@@ -165,7 +165,7 @@ module Dmtx
       end
       result
     end
-  
+
     def base_encode(t)
       bytes, result = t.bytes, [231]
       result << (37 + (bytes.size / 250) & 255) if bytes.size > 250
@@ -173,7 +173,7 @@ module Dmtx
       bytes.each { |c| result << (c + 149 * (result.size + 1) % 255 + 1 & 255) }
       result
     end
-  
+
     def edifact_encode(t)
       bytes = t.bytes
       return [] if bytes.any? { |c| c < 32 || c > 94 }
@@ -193,7 +193,7 @@ module Dmtx
       return result if l > bytes.size
       result.concat ascii_encode(bytes[(l == 0 ? 0 : l - 1)..-1].to_a.pack('C*'))
     end
-  
+
     def text_encode(t, s)
       cc = cw = 0
       bytes, result = t.bytes, [s[0]]
@@ -230,28 +230,29 @@ module Dmtx
       result.concat ascii_encode(bytes[(i - cc)..-1].to_a.pack('C*')) if cc > 0 || i < l
       result
     end
-    
+
     def c40_encode(t)
       text_encode(t, C40)
     end
-    
+
     def txt_encode(t)
       text_encode(t, TEXT)
     end
-    
+
     def x12_encode(t)
       text_encode(t, X12)
     end
-    
+
     def encode_message(msg, encoding)
       (encoding ? [encoding] : DEFAULT_ENCODINGS)
         .map { |name| [name, send("#{name}_encode", msg)] }
         .reject { |_, encoded| encoded.empty? }
         .min_by { |_, encoded| encoded.size }
     end
-    
-    def encode(enc, rct)
+
+    def encode(enc, rct, data_size_override)
       el = enc.size
+      size = data_size_override ? data_size_override : el
       nc = nr = 1
       j = -1
       b = 1
@@ -259,13 +260,13 @@ module Dmtx
       rc = []
       lg = []
       ex = []
-      if rct && el < 50
+      if rct && size < 50
         k = [16,  7, 28, 11, 24, 14, 32, 18, 32, 24, 44, 28]
         begin
           w = k[j += 1]
           h = 6 + (j & 12)
           l = w * h / 8
-        end while l - k[j += 1] < el
+        end while l - k[j += 1] < size
         nc = 2 if w > 25
       else
         w = h = 6
@@ -277,13 +278,19 @@ module Dmtx
           i = 4 + i & 12 if w > 11 * i
           w = h += i
           l = (w * h) >> 3
-        end while l - k[j] < el
+        end while l - k[j] < size
         nr = nc = 2 * (w / 54) + 2 if w > 27
         b = 2 * (l >> 9) + 2 if l > 255
       end
+      # puts el, size, w, h, nc, nr, b, l, k[j]
+
       s = k[j]
       fw = w / nc
       fh = h / nr
+
+      # Verify message fits
+      raise EncodingError, "Message too long for the matrix" if el > (l - s)
+
       # first padding
       if el < l - s
         enc[el] = 129
