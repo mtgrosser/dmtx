@@ -79,7 +79,7 @@ module Dmtx
       raise ArgumentError, 'illegal dimension' unless dim > 0
       raise ArgumentError, 'illegal padding' unless pad >= 0
       color ||= '#000'
-      path = ''
+      path = String.new
       sx = width + pad * 2
       sy = height + pad * 2
       mx = [1, 0, 0, 1, pad, pad]
