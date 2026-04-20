@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    dmtx (0.2.0)
+    dmtx (1.0.0)
       builder
       chunky_png
 
