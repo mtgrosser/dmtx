@@ -70,7 +70,7 @@ module Dmtx
     end
     
     def to_s(pad: 2)
-      (0..(height - 1)).inject('') do |s, y|
+      (0..(height - 1)).inject(+'') do |s, y|
         (0..(width - 1)).inject(s) { |t, x| t << (bit?(x,y) ? '██' : '  ') } << "\n"
       end
     end

@@ -20,12 +20,35 @@ class DmtxTest < Minitest::Test
                     101001011010
                     111111111111].join, dmtx.to_i.to_s(2)
   end
-  
+
+  def test_console_output
+    dmtx = Dmtx::DataMatrix.new('Chunky Bacon')
+    expected = <<~EOS
+      ██  ██  ██  ██  ██  ██  ██  ██  
+      ██  ██████  ██  ██          ████
+      ████  ██  ██████████████  ████  
+      ██    ████  ██  ██████  ██    ██
+      ██    ████    ██  ██    ██████  
+      ██  ██████  ████████████    ████
+      ██    ██  ████    ██    ██      
+      ██      ██        ██████  ██  ██
+      ██  ████      ████  ████████    
+      ██  ████    ██    ████  ██  ████
+      ████          ██████████████    
+      ██  ██  ████  ████  ██  ██  ████
+      ██    ████  ██    ██            
+      ████████    ██  ██      ████  ██
+      ██  ██  ██████    ██████    ██  
+      ████████████████████████████████
+    EOS
+    assert_equal expected, dmtx.to_s
+  end
+
   def test_generate_data_matrix_png
     dmtx = Dmtx::DataMatrix.new('Chunky Bacon')
     assert dmtx.to_png.to_s.start_with?((+"\x89PNG").force_encoding('BINARY'))
   end
-  
+
   def test_generate_data_matrix_svg
     dmtx = Dmtx::DataMatrix.new('Chunky Bacon')
     assert dmtx.to_svg.to_s.start_with?('<svg xmlns')
