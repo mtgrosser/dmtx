@@ -23,7 +23,7 @@ class DmtxTest < Minitest::Test
   
   def test_generate_data_matrix_png
     dmtx = Dmtx::DataMatrix.new('Chunky Bacon')
-    assert dmtx.to_png.to_s.start_with?("\x89PNG".force_encoding('BINARY'))
+    assert dmtx.to_png.to_s.start_with?((+"\x89PNG").force_encoding('BINARY'))
   end
   
   def test_generate_data_matrix_svg
