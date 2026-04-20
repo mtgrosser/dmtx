@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
 
   spec.summary       = 'Pure Ruby Datamatrix Generator'
   spec.homepage      = 'https://github.com/mtgrosser/dmtx'
-  spec.required_ruby_version = '>= 3.0.0'
+  spec.required_ruby_version = '>= 3.2.0'
   spec.licenses      = ['MIT']
 
   spec.files = Dir['{lib}/**/*.rb', 'LICENSE', 'README.md', 'CHANGELOG.md', 'Rakefile']
